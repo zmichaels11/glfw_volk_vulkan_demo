@@ -5,19 +5,112 @@
 
 #include <iostream>
 #include <limits>
+#include <memory>
+#include <stdexcept>
+#include <sstream>
+#include <string>
 #include <vector>
 
-int main(int argc, char** argv) {
+constexpr int WINDOW_WIDTH = 800;
+constexpr int WINDOW_HEIGHT = 600;
+
+struct context {
+    GLFWwindow * pWindow;
+    VkInstance instance;
+    VkPhysicalDevice physicalDevice;
+    VkDevice device;
+    VkSurfaceKHR surface;
+
+    context();
+
+    ~context();
+};
+
+context init();
+
+std::string translateVulkanResult(VkResult result);
+
+std::string translateVulkanResult(VkResult result) {
+    switch (result) {
+        // Success codes
+        case VK_SUCCESS:
+            return "Command successfully completed.";
+        case VK_NOT_READY:
+            return "A fence or query has not yet completed.";
+        case VK_TIMEOUT:
+            return "A wait operation has not completed in the specified time.";
+        case VK_EVENT_SET:
+            return "An event is signaled.";
+        case VK_EVENT_RESET:
+            return "An event is unsignaled.";
+        case VK_INCOMPLETE:
+            return "A return array was too small for the result.";
+        case VK_SUBOPTIMAL_KHR:
+            return "A swapchain no longer matches the surface properties exactly, but can still be used to present to the surface successfully.";
+
+        // Error codes
+        case VK_ERROR_OUT_OF_HOST_MEMORY:
+            return "A host memory allocation has failed.";
+        case VK_ERROR_OUT_OF_DEVICE_MEMORY:
+            return "A device memory allocation has failed.";
+        case VK_ERROR_INITIALIZATION_FAILED:
+            return "Initialization of an object could not be completed for implementation-specific reasons.";
+        case VK_ERROR_DEVICE_LOST:
+            return "The logical or physical device has been lost.";
+        case VK_ERROR_MEMORY_MAP_FAILED:
+            return "Mapping of a memory object has failed.";
+        case VK_ERROR_LAYER_NOT_PRESENT:
+            return "A requested layer is not present or could not be loaded.";
+        case VK_ERROR_EXTENSION_NOT_PRESENT:
+            return "A requested extension is not supported.";
+        case VK_ERROR_FEATURE_NOT_PRESENT:
+            return "A requested feature is not supported.";
+        case VK_ERROR_INCOMPATIBLE_DRIVER:
+            return "The requested version of Vulkan is not supported by the driver or is otherwise incompatible for implementation-specific reasons.";
+        case VK_ERROR_TOO_MANY_OBJECTS:
+            return "Too many objects of the type have already been created.";
+        case VK_ERROR_FORMAT_NOT_SUPPORTED:
+            return "A requested format is not supported on this device.";
+        case VK_ERROR_SURFACE_LOST_KHR:
+            return "A surface is no longer available.";
+        case VK_ERROR_NATIVE_WINDOW_IN_USE_KHR:
+            return "The requested window is already connected to a VkSurfaceKHR, or to some other non-Vulkan API.";
+        case VK_ERROR_OUT_OF_DATE_KHR:
+            return "A surface has changed in such a way that it is no longer compatible with the swapchain, and further presentation requests using the "
+                    "swapchain will fail. Applications must query the new surface properties and recreate their swapchain if they wish to continue"
+                    "presenting to the surface.";
+        case VK_ERROR_INCOMPATIBLE_DISPLAY_KHR:
+            return "The display used by a swapchain does not use the same presentable image layout, or is incompatible in a way that prevents sharing an"
+            " image.";
+        case VK_ERROR_VALIDATION_FAILED_EXT:
+            return "A validation layer found an error.";
+        default: {
+            auto msg = std::stringstream();
+
+            msg << "Unknown VkResult: 0x" << std::hex << result;
+
+            return msg.str();
+        }
+    }
+}
+
+void vkAssert(VkResult result) {
+    if (VK_SUCCESS != result) {
+        throw std::runtime_error(translateVulkanResult(result));
+    }
+}
+
+context::context() {
     if (!glfwInit()) {
-        throw "GLFW failed to init!";
+        throw std::runtime_error("GLFW failed to init!");
     }
 
     if (!glfwVulkanSupported()) {
-        throw "Vulkan not supported!";
+        throw std::runtime_error("Vulkan not supported!");
     }
 
     if (VK_SUCCESS != volkInitialize()) {
-        throw "Volk could not be initialized!";
+        throw std::runtime_error("Volk could not be initialized!");
     }
 
     auto instanceLayers = std::vector<const char *> ();
@@ -52,36 +145,113 @@ int main(int argc, char** argv) {
     instanceCI.enabledExtensionCount = instanceExtensions.size();
     instanceCI.ppEnabledExtensionNames = instanceExtensions.data();
 
-    VkInstance instance = VK_NULL_HANDLE;
-    auto ret = vkCreateInstance(&instanceCI, nullptr, &instance);
-
-    if (VK_SUCCESS != ret) {
-        throw "Unable to create Vulkan Instance!";
-    }
-
+    vkAssert(vkCreateInstance(&instanceCI, nullptr, &instance));
     volkLoadInstance(instance);
 
     std::uint32_t nGPUs = 0;
-    vkEnumeratePhysicalDevices(instance, &nGPUs, nullptr);
-    auto gpus = std::vector<VkPhysicalDevice> (nGPUs);
-    vkEnumeratePhysicalDevices(instance, &nGPUs, gpus.data());
+    vkAssert(vkEnumeratePhysicalDevices(instance, &nGPUs, nullptr));
+    auto pGPUs = std::make_unique<VkPhysicalDevice[]>(nGPUs);
+    vkAssert(vkEnumeratePhysicalDevices(instance, &nGPUs, pGPUs.get()));
 
-    std::uint32_t nQueueFamilies = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(gpus[0], &nQueueFamilies, nullptr);
-    auto familyProperties = std::vector<VkQueueFamilyProperties>(nQueueFamilies);
-    vkGetPhysicalDeviceQueueFamilyProperties(gpus[0], &nQueueFamilies, familyProperties.data());
+    std::cout << "Available GPUs:\n";
+    for (std::uint32_t i = 0; i < nGPUs; i++) {
+        VkPhysicalDeviceProperties properties;
+        vkGetPhysicalDeviceProperties(pGPUs[i], &properties);
 
-    std::uint32_t graphicsQueueFamilyId = std::numeric_limits<std::uint32_t>::max();
-    for (std::uint32_t i = 0; i < nQueueFamilies; i++) {
-        if (familyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-            graphicsQueueFamilyId = i;
-            break;
+        std::cout << "GPU[" << std::dec << i << "]:";
+        std::cout << "\n\tName: " << properties.deviceName;
+        std::cout << "\n\tType: ";
+
+        switch (properties.deviceType) {
+            case VK_PHYSICAL_DEVICE_TYPE_OTHER:
+                std::cout << "other\n";
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU:
+                std::cout << "CPU\n";
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+                std::cout << "Discrete GPU\n";
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+                std::cout << "Integrated GPU\n";
+                break;
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+                std::cout << "Virtual GPU\n";
+                break;
+            default:
+                std::cout << "Unknown\n";
+                break;
         }
     }
+    std::cout << std::endl;
 
-    if (graphicsQueueFamilyId == std::numeric_limits<std::uint32_t>::max()) {
-        glfwTerminate();
-        return -1;
+    //TODO: select the proper GPU
+    physicalDevice = pGPUs[0];
+
+    std::uint32_t nQueueFamilies = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &nQueueFamilies, nullptr);
+    auto familyProperties = std::make_unique<VkQueueFamilyProperties[]> (nQueueFamilies);
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &nQueueFamilies, familyProperties.get());
+
+    constexpr std::uint32_t INVALID_QUEUE_FAMILY_ID = std::numeric_limits<std::uint32_t>::max();
+    std::uint32_t graphicsQueueFamilyId = INVALID_QUEUE_FAMILY_ID;
+    for (std::uint32_t i = 0; i < nQueueFamilies; i++) {
+        std::cout << "Queue[" << std::dec << i << "]:";
+        std::cout << "\n\tQueue Count: " << std::dec << familyProperties[i].queueCount;
+        std::cout << "\n\tQueue Flags: ";
+
+        bool hasFlags = false;
+
+        if (familyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
+            std::cout << "COMPUTE";
+            hasFlags = true;
+        }
+
+        if (familyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+            if (hasFlags) {
+                std::cout << " | ";
+            }
+
+            std::cout << "GRAPHICS";
+            hasFlags = true;
+            if (INVALID_QUEUE_FAMILY_ID == graphicsQueueFamilyId) {
+                graphicsQueueFamilyId = i;
+            }
+        }
+
+        if (familyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) {
+            if (hasFlags) {
+                std::cout << " | ";
+            }
+
+            std::cout << "TRANSFER";
+            hasFlags = true;
+        }
+
+        if (familyProperties[i].queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) {
+            if (hasFlags) {
+                std::cout << " | ";
+            }
+
+            std::cout << "SPARSE BINDING";
+            hasFlags = true;
+        }
+
+        if (familyProperties[i].queueFlags & VK_QUEUE_PROTECTED_BIT) {
+            if (hasFlags) {
+                std::cout << " | ";
+            }
+
+            std::cout << "PROTECTED";
+            hasFlags = true;
+        }
+        std::cout << "\n";
+    }
+
+    std::cout << std::endl;
+
+    if (INVALID_QUEUE_FAMILY_ID == graphicsQueueFamilyId) {
+        throw std::runtime_error("Unable to find Graphics Queue Family!");
     }
 
     const float priorities[] {1.0F};
@@ -99,32 +269,45 @@ int main(int argc, char** argv) {
     deviceCI.enabledExtensionCount = deviceExtensions.size();
     deviceCI.ppEnabledExtensionNames = deviceExtensions.data();
 
-    VkDevice device = VK_NULL_HANDLE;
-    vkCreateDevice(gpus[0], &deviceCI, nullptr, &device);
-
+    vkAssert(vkCreateDevice(physicalDevice, &deviceCI, nullptr, &device));
     volkLoadDevice(device);
 
-    int width = 800;
-    int height = 600;
+    glfwDefaultWindowHints();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-    auto window = glfwCreateWindow(width, height, appCI.pApplicationName, nullptr, nullptr);
+    pWindow = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, appCI.pApplicationName, nullptr, nullptr);
 
-    glfwGetFramebufferSize(window, &width, &height);
-
-    VkSurfaceKHR surface;
-    ret = glfwCreateWindowSurface(instance, window, nullptr, &surface);
-
-    if (VK_SUCCESS != ret) {
-        throw "Could not init Vulkan surface!";
+    if (VK_SUCCESS != glfwCreateWindowSurface(instance, pWindow, nullptr, &surface)) {
+        throw std::runtime_error("Could not init Vulkan surface!");
     }
+}
 
+context::~context() {
     vkDestroySurfaceKHR(instance, surface, nullptr);
-    glfwDestroyWindow(window);
+    glfwDestroyWindow(pWindow);
     vkDestroyDevice(device, nullptr);
     vkDestroyInstance(instance, nullptr);
 
     glfwTerminate();
+}
+
+int main(int argc, char** argv) {
+    context ctx;
+
+    std::uint32_t nSurfaceFormats = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(ctx.physicalDevice, ctx.surface, &nSurfaceFormats, nullptr);
+    auto pSurfaceFormats = std::make_unique<VkSurfaceFormatKHR[]> (nSurfaceFormats);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(ctx.physicalDevice, ctx.surface, &nSurfaceFormats, pSurfaceFormats.get());
+
+    std::cout << "Supported SurfaceFormats:\n";
+    for (std::uint32_t i = 0; i < nSurfaceFormats; i++) {
+        std::cout << "\tSurfaceFormat[" << std::dec << i << "]:\n";
+        std::cout << "\t\tFormat: 0x" << std::hex << pSurfaceFormats[i].format;
+        std::cout << "\n\t\tColorSpace: 0x" << std::hex << pSurfaceFormats[i].colorSpace;
+        std::cout << "\n";
+    }
+
+    std::cout << std::endl;
 
     return 0;
 }

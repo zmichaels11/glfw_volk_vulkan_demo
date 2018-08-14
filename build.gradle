@@ -1,0 +1,36 @@
+apply plugin: 'cpp'
+
+task wrapper(type: Wrapper) {
+    gradleVersion = "4.8"
+}
+
+model {
+    toolChains {
+        gcc(Gcc) {
+            eachPlatform {
+                cppCompiler.withArguments {
+                    args ->
+                    args << '-std=c++14'
+                }
+            }
+        }
+    }
+
+    components {
+        vkcam (NativeExecutableSpec) {
+            sources {
+                cpp {
+                    source {
+                        srcDir "src/main/cpp"
+                        include "**/*.cpp"
+                    }
+
+                    exportedHeaders {
+                        srcDir "src/main/include"
+                        include "**/*.hpp"
+                    }
+                }
+            }
+        }
+    }
+}

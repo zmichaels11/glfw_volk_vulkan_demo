@@ -17,7 +17,7 @@ model {
                 linker.withArguments {
                     args ->
                     args << "-lglfw"
-                    args << "-lvulkan"
+                    args << "-ldl"
                 }
             }
         }
@@ -29,7 +29,7 @@ model {
                 cpp {
                     source {
                         srcDir "src/main/cpp"
-                        include "**/*.cpp"
+                        include "**/*.cpp", "**/*.c"
                     }
 
                     exportedHeaders {

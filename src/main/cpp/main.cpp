@@ -1,6 +1,4 @@
-#include <vulkan/vulkan.h>
-
-#define GLFW_INCLUDE_VULKAN
+#include "volk.h"
 #include <GLFW/glfw3.h>
 
 #include <cstdint>
@@ -16,6 +14,10 @@ int main(int argc, char** argv) {
 
     if (!glfwVulkanSupported()) {
         throw "Vulkan not supported!";
+    }
+
+    if (VK_SUCCESS != volkInitialize()) {
+        throw "Volk could not be initialized!";
     }
 
     auto instanceLayers = std::vector<const char *> ();
@@ -57,6 +59,8 @@ int main(int argc, char** argv) {
         throw "Unable to create Vulkan Instance!";
     }
 
+    volkLoadInstance(instance);
+
     std::uint32_t nGPUs = 0;
     vkEnumeratePhysicalDevices(instance, &nGPUs, nullptr);
     auto gpus = std::vector<VkPhysicalDevice> (nGPUs);
@@ -97,6 +101,8 @@ int main(int argc, char** argv) {
 
     VkDevice device = VK_NULL_HANDLE;
     vkCreateDevice(gpus[0], &deviceCI, nullptr, &device);
+
+    volkLoadDevice(device);
 
     int width = 800;
     int height = 600;

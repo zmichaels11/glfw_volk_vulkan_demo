@@ -24,7 +24,7 @@ model {
     }
 
     components {
-        vkcam (NativeExecutableSpec) {
+        vulkanGLFWTest (NativeExecutableSpec) {
             sources {
                 cpp {
                     source {

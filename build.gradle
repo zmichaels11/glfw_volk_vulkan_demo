@@ -1,28 +1,10 @@
 apply plugin: 'cpp'
 
 wrapper {
-    gradleVersion = "4.8"
+    gradleVersion = "4.10.2"
 }
 
 model {
-    toolChains {
-        gcc(Gcc) {
-            eachPlatform {
-                cppCompiler.withArguments {
-                    args ->
-                    args << '-std=c++14'
-                    args << '-g'
-                }
-
-                linker.withArguments {
-                    args ->
-                    args << "-lglfw"
-                    args << "-ldl"
-                }
-            }
-        }
-    }
-
     components {
         vulkanGLFWTest (NativeExecutableSpec) {
             sources {
@@ -36,6 +18,17 @@ model {
                         srcDir "src/main/include"
                         include "**/*.hpp"
                     }
+                }
+            }
+
+            binaries.all {
+                if (toolChain instanceof VisualCpp) {
+                    cppCompiler.args << "/std:c++14"
+                    //TODO: Link glfw on Windows
+                } else {
+                    cppCompiler.args << "-std=c++14"
+                    linker.args << "-lglfw"
+                    linker.args << "-ldl"
                 }
             }
         }
